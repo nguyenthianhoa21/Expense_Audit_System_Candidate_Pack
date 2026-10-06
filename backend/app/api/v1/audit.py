@@ -10,7 +10,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.session import get_db
 from app.schemas.extraction import DocType
 from app.schemas.validation import SEVERITY_ORDER, Severity
-from app.services.audit_pipeline import get_batch_detail, list_batches, process_files, save_batch, guess_doc_type_hint
+from app.services.audit_pipeline import (
+    RULE_HIGHLIGHT,
+    _suggestion_for,
+    get_batch_detail,
+    list_batches,
+    process_files,
+    save_batch,
+)
 from app.services.audit_engine import AuditEngine
 from app.services.extractor import ExtractorService
 
@@ -80,6 +87,10 @@ async def upload_batch(
         for p in outcome.processed
     ]
 
+    def _hl(rule_id: str) -> list[str]:
+        rid = (rule_id or "").split("_")[0]
+        return RULE_HIGHLIGHT.get(rid, [])
+
     findings_sorted = sorted(
         [f for f in rule_results if f.status.value == "FAILED"],
         key=lambda x: (SEVERITY_ORDER.get(Severity(x.severity.value), 99), x.rule_id),
@@ -100,6 +111,8 @@ async def upload_batch(
                 "expected_value": str(f.details.get("expected_value") or f.details.get("expected", "")) or None,
                 "actual_value": str(f.details.get("actual_value") or f.details.get("actual", "")) or None,
                 "reason": f.message,
+                "suggestion": _suggestion_for(f.rule_id.split("_")[0]),
+                "highlight_targets": _hl(f.rule_id),
                 "evidence_snippet": str(f.details)[:1200] if f.details else None,
             }
             for f in findings_sorted
@@ -149,6 +162,17 @@ async def get_audit_batch(batch_id: str, session: AsyncSession = Depends(get_db)
         for r in rule_results
     ]
     detail["verdict"] = verdict.model_dump()
+
+    # Bo sung suggestion + highlight_targets cho findings da luu trong DB,
+    # de UI xu lich su co du thong tin nhu vong upload moi.
+    for f in detail.get("findings", []):
+        rid = (f.get("rule_id") or "").split("_")[0]
+        f.setdefault("suggestion", _suggestion_for(rid))
+        f["highlight_targets"] = RULE_HIGHLIGHT.get(rid, [])
+    detail["findings"] = sorted(
+        detail["findings"],
+        key=lambda x: SEVERITY_ORDER.get(Severity(x.get("severity", "INFO")), 99),
+    )
     return detail
 
 

@@ -151,6 +151,30 @@ def _finding_rows(batch_id: uuid.UUID, results: list[RuleResult]) -> list[m.Vali
     return rows
 
 
+# Single source of truth cho hint UI: rule -> cac o du lieu can highlight.
+# Dinh dang: "<DOC_TYPE>::<field_path>" (field_path la key trong extracted JSON).
+RULE_HIGHLIGHT: dict[str, list[str]] = {
+    "R0": ["PO::doc_number", "INVOICE::doc_number", "PAYMENT_REQUEST::doc_number"],
+    "R1": ["INVOICE::reference_numbers", "PAYMENT_REQUEST::reference_numbers", "PO::doc_number"],
+    "R2": [
+        "PAYMENT_REQUEST::bank_beneficiary.account_number",
+        "PAYMENT_REQUEST::bank_beneficiary.account_name",
+        "INVOICE::bank_beneficiary.account_number",
+        "PO::bank_beneficiary.account_number",
+    ],
+    "R3": ["INVOICE::items", "PO::items"],
+    "R4": ["INVOICE::subtotal_amount", "INVOICE::vat_amount", "INVOICE::total_amount", "PO::subtotal_amount", "PO::total_amount"],
+    "R5": ["INVOICE::items", "PO::items"],
+    "R6": ["INVOICE::items", "PO::items"],
+    "R7": ["PO::total_amount", "INVOICE::total_amount", "PAYMENT_REQUEST::requested_payment_amount"],
+    "R8": ["PO::seller_name", "INVOICE::seller_name", "PAYMENT_REQUEST::seller_name"],
+    "R9": ["PO::buyer_name", "INVOICE::buyer_name", "PAYMENT_REQUEST::buyer_name"],
+    "R10": ["PO::buyer_address", "PO::seller_address", "INVOICE::buyer_address", "INVOICE::seller_address"],
+    "R11": ["PO::issue_date", "INVOICE::issue_date", "PAYMENT_REQUEST::issue_date", "INVOICE::due_date"],
+    "R12": ["PO::approval_status", "INVOICE::approval_status", "PAYMENT_REQUEST::approval_status"],
+}
+
+
 def _suggestion_for(rule_id: str) -> str:
     return {
         "R0": "Bo sung day du PO, Invoice va Payment Request roi chay lai audit.",

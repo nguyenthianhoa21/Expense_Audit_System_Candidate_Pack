@@ -1,5 +1,4 @@
 import { useState, useEffect, useRef } from 'react'
-import { Building2, Users } from 'lucide-react'
 
 function VerdictBadge({ v }) {
   const s = { REJECTED: 'bg-red-600 text-white', WARNING: 'bg-amber-500 text-white', PASSED: 'bg-emerald-600 text-white', INFO: 'bg-slate-300' }[v] || 'bg-slate-700 text-white'
@@ -14,7 +13,7 @@ const TABS = [
 ]
 
 /** Ma tran 3 cot: PO | Invoice | Payment Request. */
-export default function SideBySideViewer({ batch, findings, flashKey }) {
+export default function SideBySideViewer({ batch }) {
   const [tab, setTab] = useState('general')
   const rootRef = useRef(null)
 
@@ -76,7 +75,7 @@ export default function SideBySideViewer({ batch, findings, flashKey }) {
       {/* Grid */}
       <div className="grid grid-cols-1 divide-y md:grid-cols-3 md:divide-x md:divide-y-0">
         {COLS.map((col) => (
-          <Column key={col.key} column={col} tab={tab} findings={findings} />
+          <Column key={col.key} column={col} tab={tab} />
         ))}
       </div>
     </div>
@@ -97,10 +96,9 @@ function Field({ flag, label, value, dataField }) {
   )
 }
 
-function Column({ column, tab, findings }) {
+function Column({ column, tab }) {
   const data = column.data
   const ex = data?.extracted || {}
-  const isRejected = findings?.some((f) => f._docType === column.key) // placeholder
   if (!data) return (
     <div className="p-4">
       <div className="text-xs font-semibold text-slate-400">{column.label}</div>
