@@ -2,7 +2,7 @@
 
 Kien truc 4 lop phong ve (Failover):
 
-    Layer 1  Config Guard      -> thieu OPENROUTER_API_KEY / file khong doc duoc
+    Layer 1  Config Guard      -> thieu OPENROUTER_API_KEY / file không đọc được
     Layer 2  Model Chain       -> gemma-4-31b-it:free  ->  gemma-4-26b-a4b-it:free
     Layer 3  Retry & Timeout   -> exponential backoff, toi da 3 lan, timeout 20s
     Layer 4  Offline Parser    -> pdfplumber/PyMuPDF + regex, luon co ket qua
@@ -30,6 +30,38 @@ from app.services.document_io import read_document_text, validate_document_input
 from app.services.offline_parser import detect_doc_type, parse_offline_plain_text
 
 logger = logging.getLogger(__name__)
+
+# ------------------------------------------------------ helpers cho giao dien
+# Nguyen tac: loi ky thuat chi ghi log o terminal, khong day thang len UI.
+_RATE_LIMIT_HINTS = ("429", "rate-limited", "rate limited", "ratelimit")
+
+
+def _sanitize_ui_text(text: str, limit: int = 200) -> str:
+    """ rut gon chuoi loi tho cho hien thi tren FE (bo JSON tho, cat ngan). """
+    t = (text or "").strip()
+    if not t:
+        return ""
+    # Cat phan JSON tho {"error": ...} neu xuat hien som.
+    cut = t.find("{")
+    if 0 < cut <= 60:
+        t = t[:cut].strip().rstrip(";,")
+    if len(t) > limit:
+        t = t[:limit].rstrip() + "\u2026"
+    t = re.sub(r"\s+", " ", t).strip()
+    return t
+
+
+def _friendly_model_warning(model: str, exc: Exception) -> str:
+    """ Thay loi tho cua OpenRouter bang thong bao tieng Viet de doc. """
+    raw = str(exc)
+    low = raw.lower()
+    if any(h in low for h in _RATE_LIMIT_HINTS) or "HTTP 429" in raw:
+        return (
+            f"{model}: provider dang gioi han toc do (HTTP 429), "
+            "da het so lan thu. He thong chuyen sang bo phan tich du phong cuc bo."
+        )
+    return f"{model}: { _sanitize_ui_text(raw, 180) }".strip()
+
 
 SYSTEM_PROMPT = """Ban la chuyen gia trich xuat du lieu chung tu tai lieu doanh nghiep (PO / Invoice / Payment Request).
 
@@ -201,11 +233,11 @@ class ExtractorService:
             pass
         start, end = raw.find("{"), raw.rfind("}")
         if start == -1 or end <= start:
-            raise ExtractionError("Model tra ve noi dung khong phai JSON")
+            raise ExtractionError("Mô hình trả về nội dung không phải JSON")
         try:
             return json.loads(raw[start : end + 1])
         except json.JSONDecodeError as exc:
-            raise ExtractionError(f"JSON khong hop le: {exc}") from exc
+            raise ExtractionError(f"JSON không hợp lệ: {exc}") from exc
 
     # ------------------------------------------- Layer 2 + 3 (LLM call)
 
@@ -231,7 +263,7 @@ class ExtractorService:
             raise ExtractionError(f"API error: {body['error']}")
         choices = body.get("choices") or []
         if not choices:
-            raise ExtractionError("Response khong co choices")
+            raise ExtractionError("Phản hồi không có danh sách lựa chọn")
         content = (choices[0].get("message") or {}).get("content") or ""
         if not content.strip():
             raise ExtractionError("Noi dung tra ve rong")
@@ -283,9 +315,9 @@ class ExtractorService:
         ]
         warnings = [f"Offline parser (Layer 4) vi: {reason}"]
         if not data.items:
-            warnings.append("Khong parse duoc dong hang - can kiem tra lai bang mat")
+            warnings.append("Khong tach duoc dong hang - can nguoi dung kiem tra lai bang mat.")
         if missing:
-            warnings.append("Truong rong sau offline parse: " + ", ".join(missing))
+            warnings.append("Truong rong sau khi phan tich du phong: " + ", ".join(missing))
         return ExtractionResult(
             data=data,
             model=None,
@@ -308,14 +340,14 @@ class ExtractorService:
         text, meta = await asyncio.to_thread(read_document_text, content, filename)
         if not text.strip():
             raise ExtractionError(
-                f"{filename}: khong trich duoc text. File scan/anh khong co text layer "
-                "can OCR truoc khi dua vao he thong."
+                f"{filename}: không trích được văn bản. Tệp scan/ảnh không có lớp văn bản "
+                "cần OCR trước khi đưa vào hệ thống."
             )
 
         # Layer 1b - config guard
         if not self.settings.OPENROUTER_API_KEY:
-            warnings.append("Thieu OPENROUTER_API_KEY (Layer 1 Config Guard)")
-            result = self._offline(text, doc_type_hint, "thieu API key", self._elapsed(started))
+            warnings.append("Thiếu OPENROUTER_API_KEY (Lớp 1 - Bảo vệ cấu hình)")
+            result = self._offline(text, doc_type_hint, "thieu OPENROUTER_API_KEY", self._elapsed(started))
             result.warnings = warnings + result.warnings
             result.attempts = [f"{filename}: {meta['pages']} trang, {meta['backend']}"]
             return result
@@ -329,7 +361,7 @@ class ExtractorService:
                 try:
                     data = await self._call_model_with_retry(model, text, doc_type_hint, client, attempts)
                 except ExtractionError as exc:
-                    warnings.append(f"{model}: {exc}")
+                    warnings.append(_friendly_model_warning(model, exc))
                     logger.warning("Bo qua model %s, chuyen sang model tiep theo", model)
                     continue
 
@@ -349,8 +381,9 @@ class ExtractorService:
                     )
                 return result
 
-        # Layer 4
-        reasons = "; ".join(warnings) or "tat ca model trong chain deu that bai"
+        # Layer 4 - phan tich du phong cuc bo
+        reasons = _sanitize_ui_text("; ".join(warnings), 240) or "Tat ca mo hinh trong chuoi deu that bai"
+        logger.warning("Layer 4 fallback (Offline parser): %s", reasons)
         result = self._offline(text, doc_type_hint, reasons, self._elapsed(started))
         result.warnings = warnings + result.warnings
         result.attempts = attempts

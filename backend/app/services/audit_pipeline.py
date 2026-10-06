@@ -47,7 +47,7 @@ DOC_TYPE_FROM_SUFFIX = {
 
 
 def guess_doc_type_hint(filename: str) -> DocType | None:
-    """Phan loai so bo tu ten file (nguoi dung co the ghi de o UI)."""
+    """Phân loại sơ bộ tu ten file (người dùng co the ghi de o UI)."""
     low = filename.lower()
     for key, dtype in DOC_TYPE_FROM_SUFFIX.items():
         if key in low:
@@ -60,7 +60,7 @@ async def process_files(
     extractor: ExtractorService | None = None,
     hints: dict[str, DocType] | None = None,
 ) -> BatchOutcome:
-    """Chay extraction + audit cho 1 batch upload, chua luu DB."""
+    """Chạy trích xuất + audit cho 1 batch upload, chua luu DB."""
     settings = get_settings()
     extractor = extractor or ExtractorService()
     storage = Path(settings.STORAGE_PATH)
@@ -72,7 +72,7 @@ async def process_files(
     for filename, content in files:
         safe = Path(filename).name or f"document-{len(processed) + 1}.pdf"
         dest = batch_dir / safe
-        # Tranh ghi de khi trung ten file.
+        # Tránh ghi đè khi trùng tên tệp.
         counter = 1
         while dest.exists():
             dest = batch_dir / f"{dest.stem}-{counter}{dest.suffix}"
@@ -94,11 +94,11 @@ async def process_files(
         if docs[dtype] is None:
             docs[dtype] = p.extraction.data
         else:
-            duplicates.append(f"{p.file_name} cung la {dtype.value}, chi dung file dau tien cho audit")
+            duplicates.append(f"{p.file_name} cùng là {dtype.value}, chỉ dùng tệp đầu tiên cho kiểm tra")
 
     verdict, rule_results = AuditEngine().run(docs)
     if duplicates:
-        # Ghi nhan file thua o muc INFO de UI hien thi, khong anh huong verdict.
+        # Ghi nhận tệp thừa ở mức INFO để UI hiển thị, không ảnh hưởng kết luận.
         rule_results.append(
             RuleResult(
                 rule_id="DUP",
@@ -127,7 +127,7 @@ def _finding_rows(batch_id: uuid.UUID, results: list[RuleResult]) -> list[m.Vali
                     expected_value=None,
                     actual_value=None,
                     reason=r.message,
-                    suggestion="Kiem tra lai file upload, moi loai chung tu chi can 1 file.",
+                    suggestion="Kiểm tra lại tệp đã tải, mỗi loại chứng từ chỉ cần 1 tệp.",
                     evidence_snippet=None,
                 )
             )
@@ -151,8 +151,8 @@ def _finding_rows(batch_id: uuid.UUID, results: list[RuleResult]) -> list[m.Vali
     return rows
 
 
-# Single source of truth cho hint UI: rule -> cac o du lieu can highlight.
-# Dinh dang: "<DOC_TYPE>::<field_path>" (field_path la key trong extracted JSON).
+# Nguồn duy nhất cho gợi ý hiển thị: rule -> các ô dữ liệu cần tô sáng.
+# Định dạng: "<DOC_TYPE>::<field_path>" (field_path la key trong extracted JSON).
 RULE_HIGHLIGHT: dict[str, list[str]] = {
     "R0": ["PO::doc_number", "INVOICE::doc_number", "PAYMENT_REQUEST::doc_number"],
     "R1": ["INVOICE::reference_numbers", "PAYMENT_REQUEST::reference_numbers", "PO::doc_number"],
@@ -161,11 +161,13 @@ RULE_HIGHLIGHT: dict[str, list[str]] = {
         "PAYMENT_REQUEST::bank_beneficiary.account_name",
         "INVOICE::bank_beneficiary.account_number",
         "PO::bank_beneficiary.account_number",
+        "PAYMENT_REQUEST::bank_beneficiary.account_name",
+        "INVOICE::bank_beneficiary.account_name",
     ],
-    "R3": ["INVOICE::items", "PO::items"],
-    "R4": ["INVOICE::subtotal_amount", "INVOICE::vat_amount", "INVOICE::total_amount", "PO::subtotal_amount", "PO::total_amount"],
-    "R5": ["INVOICE::items", "PO::items"],
-    "R6": ["INVOICE::items", "PO::items"],
+    "R3": ["INVOICE::items", "PO::items", "INVOICE::items.__table", "PO::items.__table"],
+    "R4": ["INVOICE::subtotal_amount", "INVOICE::vat_amount", "INVOICE::total_amount", "PO::subtotal_amount", "PO::total_amount", "PO::subtotal_amount", "INVOICE::subtotal_amount"],
+    "R5": ["INVOICE::items", "PO::items", "INVOICE::items.__table", "PO::items.__table"],
+    "R6": ["INVOICE::items", "PO::items", "INVOICE::items.__table", "PO::items.__table"],
     "R7": ["PO::total_amount", "INVOICE::total_amount", "PAYMENT_REQUEST::requested_payment_amount"],
     "R8": ["PO::seller_name", "INVOICE::seller_name", "PAYMENT_REQUEST::seller_name"],
     "R9": ["PO::buyer_name", "INVOICE::buyer_name", "PAYMENT_REQUEST::buyer_name"],
@@ -177,29 +179,30 @@ RULE_HIGHLIGHT: dict[str, list[str]] = {
 
 def _suggestion_for(rule_id: str) -> str:
     return {
-        "R0": "Bo sung day du PO, Invoice va Payment Request roi chay lai audit.",
-        "R1": "Kiem tra lai so PO tham chieu tren Invoice/PR phai khop so PO goc.",
-        "R2": "Xac minh tai khoan thu huong voi nha cung cap; khong thanh toan khi chua khop.",
-        "R3": "Soat lai bang ke: quantity x unit_price phai bang amount tren tung dong.",
-        "R4": "Soat lai subtotal, VAT va total tren chung tu.",
-        "R5": "So luong tren Invoice khong duoc vuot PO; yeu cau dieu chinh hoac bo sung PO.",
-        "R6": "Don gia tren Invoice khong duoc vuot PO; dam phan lai hoac dieu chinh hoa don.",
-        "R7": "So tien de nghi tren PR phai khop 100% tong Invoice; tong Invoice khong vuot PO.",
-        "R8": "Kiem tra ten ben ban tren cac chung tu co dong nhat khong.",
-        "R9": "Kiem tra ten ben mua tren cac chung tu co dong nhat khong.",
-        "R10": "Doi chieu dia chi ben mua/ben ban giua PO va Invoice.",
-        "R11": "Kiem tra trinh tu ngay: PO <= Invoice <= PR va han thanh toan.",
-        "R12": "Hoan tat phe duyet tren PO/PR truoc khi thanh toan.",
-    }.get(rule_id, "Kiem tra lai chung tu lien quan.")
+        "R0": "Bổ sung đầy đủ PO, Invoice và Payment Request rồi chạy lại kiểm tra.",
+        "R1": "Kiểm tra số PO tham chiếu trên Invoice/PR phải khớp số PO gốc.",
+        "R2": "Xác minh tài khoản thụ hưởng với nhà cung cấp; không thanh toán khi chưa khớp.",
+        "R3": "Soát lại bảng kê: số lượng × đơn giá phải bằng thành tiền trên từng dòng.",
+        "R4": "Soát lại tổng phụ, VAT và tổng trên chứng từ.",
+        "R5": "Số lượng trên Invoice không được vượt PO; yêu cầu điều chỉnh hoặc bổ sung PO.",
+        "R6": "Đơn giá trên Invoice không được vượt PO; đàm phán lại hoặc điều chỉnh hoá đơn.",
+        "R7": "Số tiền đề nghị trên PR phải khớp 100% tổng Invoice; tổng Invoice không vượt PO.",
+        "R8": "Kiểm tra tên bên bán trên các chứng từ có đồng nhất không.",
+        "R9": "Kiểm tra tên bên mua trên các chứng từ có đồng nhất không.",
+        "R10": "Đối chiếu địa chỉ bên mua/bên bán giữa PO và Invoice.",
+        "R11": "Kiểm tra trình tự ngày: PO ≤ Invoice ≤ PR và hạn thanh toán.",
+        "R12": "Hoàn tất phê duyệt trên PO/PR trước khi thanh toán.",
+    }.get(rule_id, "Kiểm tra lại chứng từ liên quan.")
 
 
-async def save_batch(session: AsyncSession, outcome: BatchOutcome) -> uuid.UUID:
-    """Luu batch + documents + findings vao DB, tra ve batch_id."""
+async def save_batch(session: AsyncSession, outcome: BatchOutcome, reference_label: str | None = None) -> uuid.UUID:
+    """Lưu bộ dữ liệu + documents + findings vao DB, trả về batch_id."""
     batch = m.AuditBatch(
         id=outcome.batch_id,
         status="COMPLETED",
         overall_verdict=outcome.verdict.overall_verdict.value,
         summary_note=outcome.verdict.summary_note,
+        reference_label=reference_label,
     )
     session.add(batch)
     for p in outcome.processed:
@@ -244,6 +247,7 @@ async def list_batches(session: AsyncSession, limit: int = 50, offset: int = 0) 
                 "status": b.status,
                 "overall_verdict": b.overall_verdict,
                 "summary_note": b.summary_note,
+                "reference_label": b.reference_label,
                 "document_count": doc_count,
             }
         )
@@ -270,6 +274,7 @@ async def get_batch_detail(session: AsyncSession, batch_id: uuid.UUID) -> dict |
             "status": batch.status,
             "overall_verdict": batch.overall_verdict,
             "summary_note": batch.summary_note,
+            "reference_label": batch.reference_label,
         },
         "documents": [
             {

@@ -4,7 +4,7 @@ from __future__ import annotations
 import logging
 import uuid
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Response, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db
@@ -35,15 +35,17 @@ async def health() -> dict:
 @router.post("/audit/upload")
 async def upload_batch(
     files: list[UploadFile] = File(  # noqa: B008 - FastAPI requires default here
-        ..., description="Toi thieu 1 file, toi da 10 file. Moi file: PDF/anh, toi da 20MB."
+        ..., description="Tối thiểu 1 tệp, tối đa 10 tệp. Mỗi tệp: PDF/ảnh, tối đa 20MB."
     ),
+    reference_label: str | None = Form(default=None, description="Số/tiêu đề bộ chứng từ nhập từ UI."),
     session: AsyncSession = Depends(get_db),
 ) -> dict:
     """Upload 1 batch chung tu -> trich xuat -> audit R0-R12 -> luu lich su."""
+    label = (reference_label or "").strip() or None
     if not files or len(files) == 0:
-        raise HTTPException(status_code=400, detail="Can tai len it nhat 1 file.")
+        raise HTTPException(status_code=400, detail="Cần tải lên ít nhất 1 tệp.")
     if len(files) > 10:
-        raise HTTPException(status_code=400, detail="Toi da 10 file moi batch.")
+        raise HTTPException(status_code=400, detail="Tối đa 10 tệp cho mỗi bộ.")
 
     allowed = ", ".join(sorted(ALLOWED_SUFFIXES))
     payload: list[tuple[str, bytes]] = []
@@ -53,19 +55,19 @@ async def upload_batch(
         if suffix not in ALLOWED_SUFFIXES:
             raise HTTPException(
                 status_code=400,
-                detail=f"Loai file khong ho tro cho \"{name}\": chi chap nhan {allowed}.",
+                detail=f"Định dạng tệp không được hỗ trợ cho \"{name}\": chỉ chấp nhận {allowed}.",
             )
         content = await f.read()
         if len(content) > 20 * 1024 * 1024:
-            raise HTTPException(status_code=400, detail=f"File {name} vuot qua 20MB.")
+            raise HTTPException(status_code=400, detail=f"Tệp {name} vượt quá 20MB.")
         payload.append((name, content))
 
-    # Cho phep nguoi dung ghi de hint qua query string ?type_<index>=PO|INVOICE|PAYMENT_REQUEST
-    # nhung mac dinh thi tu suy luan.
+    # Cho phép người dùng ghi đè gợi ý qua query string ?type_<index>=PO|INVOICE|PAYMENT_REQUEST
+    # nhưng mặc định hệ thống tự suy luận.
 
     outcome = await process_files(payload, extractor=ExtractorService())
 
-    # Tinh lai findings de tra ve chi tiet ruleResults (khong chi severity).
+    # Tính lại findings để trả đầy đủ ruleResults (không chỉ mức độ nghiêm trọng).
     docs = {d.extraction.data.doc_type: d.extraction.data for d in outcome.processed}
     for k in (DocType.PO, DocType.INVOICE, DocType.PAYMENT_REQUEST):
         docs.setdefault(k, None)
@@ -73,7 +75,7 @@ async def upload_batch(
     outcome.verdict = verdict
     outcome.rule_results = rule_results
 
-    batch_id = await save_batch(session, outcome)
+    batch_id = await save_batch(session, outcome, reference_label=label)
 
     documents = [
         {
@@ -98,6 +100,7 @@ async def upload_batch(
     return {
         "batch_id": str(batch_id),
         "status": "COMPLETED",
+        "reference_label": label,
         "overall_verdict": verdict.overall_verdict.value,
         "summary_note": verdict.summary_note,
         "counts_by_severity": verdict.counts_by_severity,
@@ -141,11 +144,11 @@ async def get_audit_batch(batch_id: str, session: AsyncSession = Depends(get_db)
     try:
         uid = uuid.UUID(batch_id)
     except ValueError:
-        raise HTTPException(status_code=400, detail="batch_id khong hop le") from None
+        raise HTTPException(status_code=400, detail="batch_id không hợp lệ") from None
     detail = await get_batch_detail(session, uid)
     if detail is None:
-        raise HTTPException(status_code=404, detail="Khong tim thay batch")
-    # Bo sung rule_results o trang chi tiet (tinh lai tu extracted_json da luu).
+        raise HTTPException(status_code=404, detail="Không tìm thấy bộ dữ liệu")
+    # Bổ sung rule_results ở trang chi tiết (tính lại từ extracted_json đã lưu).
     from app.schemas.extraction import DocumentExtractionData as _D  # noqa: PLC0415
 
     docs = {DocType.PO: None, DocType.INVOICE: None, DocType.PAYMENT_REQUEST: None}
@@ -154,7 +157,7 @@ async def get_audit_batch(batch_id: str, session: AsyncSession = Depends(get_db)
             data = _D.model_validate(d["extracted"])
             docs[data.doc_type] = data
         except Exception:  # noqa: BLE001
-            logger.warning("Khong parse lai extracted_json cho %s", d["file_name"])
+            logger.warning("Không phân tích lại được extracted_json cho %s", d["file_name"])
     verdict, rule_results = AuditEngine().run(docs)  # type: ignore[arg-type]
     detail["rule_results"] = [
         {"rule_id": r.rule_id, "rule_name": r.rule_name, "status": r.status.value,
@@ -163,8 +166,8 @@ async def get_audit_batch(batch_id: str, session: AsyncSession = Depends(get_db)
     ]
     detail["verdict"] = verdict.model_dump()
 
-    # Bo sung suggestion + highlight_targets cho findings da luu trong DB,
-    # de UI xu lich su co du thong tin nhu vong upload moi.
+    # Bổ sung suggestion + highlight_targets cho findings đã lưu trong DB
+    # để UI hiển thị lịch sử vẫn đủ thông tin như đợt tải mới.
     for f in detail.get("findings", []):
         rid = (f.get("rule_id") or "").split("_")[0]
         f.setdefault("suggestion", _suggestion_for(rid))
@@ -178,14 +181,14 @@ async def get_audit_batch(batch_id: str, session: AsyncSession = Depends(get_db)
 
 @router.get("/audit/batches/{batch_id}/export")
 async def export_batch_csv(batch_id: str, session: AsyncSession = Depends(get_db)) -> Response:
-    """Xuat CSV findings cho batch. Dung de dinh kem bao cao audit."""
+    """Xuất tệp CSV findings cho bộ dữ liệu. Dùng để đính kèm báo cáo kiểm tra."""
     try:
         uid = uuid.UUID(batch_id)
     except ValueError:
-        raise HTTPException(status_code=400, detail="batch_id khong hop le") from None
+        raise HTTPException(status_code=400, detail="batch_id không hợp lệ") from None
     detail = await get_batch_detail(session, uid)
     if detail is None:
-        raise HTTPException(status_code=404, detail="Khong tim thay batch")
+        raise HTTPException(status_code=404, detail="Không tìm thấy bộ dữ liệu")
 
     import csv
     import io

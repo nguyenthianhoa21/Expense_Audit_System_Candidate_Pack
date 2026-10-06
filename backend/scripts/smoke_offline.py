@@ -1,11 +1,17 @@
-"""Smoke test offline (khong can API key): parser + audit engine + verdict.
+"""Smoke test offline (không cần API key): parser + audit engine + verdict.
 
 Chay: python scripts/smoke_offline.py
 """
 from __future__ import annotations
 
-import pathlib
-import sys
+import os, sys, pathlib
+# force UTF-8 output on Windows so print() does not crash on Vietnamese
+try:
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+except Exception:
+   pass
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
@@ -23,7 +29,7 @@ FILES = {
 
 
 def main() -> int:
-    docs: dict[DocType, object] = {}
+    docs = {}
     for dtype, name in FILES.items():
         path = SAMPLE_DIR / name
         text, meta = read_document_text(path.read_bytes(), name)
@@ -43,7 +49,7 @@ def main() -> int:
 
     ok = verdict.overall_verdict.value == "REJECTED"
     print()
-    print("EXPECTED REJECTED (bộ sample cố ý chứa lỗi):", "OK" if ok else "FAIL")
+    print("Kỳ vọng REJECTED (bộ mẫu cố ý chứa lỗi):", "OK" if ok else "FAIL")
     return 0 if ok else 1
 
 

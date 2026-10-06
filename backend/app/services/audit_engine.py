@@ -2,7 +2,7 @@
 
 Nguyen tac: khong co LLM trong file nay. Moi phan toan, moi so sanh deu la
 code thuan tien dinh -> ket qua lap lai duoc va co the giai thich cho reviewer.
-LLM chi lo phan doc chung tu (Extraction Engine); phan kiem toan thuoc ve file nay.
+LLM chi lo phan doc chứng từ (Extraction Engine); phan kiem toan thuoc ve file nay.
 """
 from __future__ import annotations
 
@@ -72,7 +72,7 @@ def _within(a: float, b: float, tol: float = AMOUNT_TOLERANCE) -> bool:
 
 
 class AuditEngine:
-    """Chay toan bo R0 - R12 tren 3 chung tu da trich xuat."""
+    """Chạy toàn bộ R0 - R12 trên 3 chứng từ da trich xuat."""
 
     def __init__(self, tolerance: float = AMOUNT_TOLERANCE) -> None:
         self.tolerance = tolerance
@@ -102,10 +102,10 @@ class AuditEngine:
             return self._result(
                 "R0",
                 RuleStatus.FAILED,
-                f"Thieu chung tu: {', '.join(missing)}. Ho so thanh toan can du 3/3 chung tu.",
+                f"Thiếu chứng từ: {', '.join(missing)}. Hồ sơ thanh toán cần đủ 3/3 chứng từ.",
                 details={"missing": missing},
             )
-        return self._result("R0", RuleStatus.PASSED, "Da co du 3 chung tu PO, Invoice, Payment Request.")
+        return self._result("R0", RuleStatus.PASSED, "Đã có đủ 3 chứng từ PO, Invoice, Payment Request.")
 
     # --------------------------------------------------------------- R1
 
@@ -113,13 +113,13 @@ class AuditEngine:
         self, po: DocumentExtractionData | None, inv: DocumentExtractionData | None, pr: DocumentExtractionData | None
     ) -> RuleResult:
         if po is None:
-            return self._result("R1", RuleStatus.SKIPPED, "Thieu PO nen khong kiem tra cross-reference.")
+            return self._result("R1", RuleStatus.SKIPPED, "Thiếu PO nen khong kiem tra cross-reference.")
         if inv is None and pr is None:
-            return self._result("R1", RuleStatus.SKIPPED, "Thieu Invoice va PR.")
+            return self._result("R1", RuleStatus.SKIPPED, "Thiếu Invoice và PR.")
 
         po_no = (po.doc_number or "").strip().upper()
         if not po_no:
-            return self._result("R1", RuleStatus.SKIPPED, "PO khong co so hieu de so sanh.")
+            return self._result("R1", RuleStatus.SKIPPED, "PO không có số hiệu để so sánh.")
 
         problems: list[str] = []
         checked: list[str] = []
@@ -129,13 +129,13 @@ class AuditEngine:
             refs = [r.strip().upper() for r in (doc.reference_numbers or [])]
             checked.append(label)
             if not refs:
-                problems.append(f"{label} khong co reference_numbers nao")
+                problems.append(f"{label} không có số tham chiếu nào")
             elif po_no not in refs:
-                problems.append(f"{label} khong tham chieu PO {po_no} (refs={refs})")
+                problems.append(f"{label} không tham chiếu PO {po_no} (refs={refs})")
 
         if problems:
             return self._result("R1", RuleStatus.FAILED, "; ".join(problems), details={"po_number": po_no})
-        return self._result("R1", RuleStatus.PASSED, f"Ca {len(checked)} chung tu deu tham chieu {po_no}.",
+        return self._result("R1", RuleStatus.PASSED, f"Cả {len(checked)} chứng từ đều tham chiếu {po_no}.",
                            details={"po_number": po_no})
 
     # --------------------------------------------------------------- R2
@@ -150,13 +150,13 @@ class AuditEngine:
         self, po: DocumentExtractionData | None, inv: DocumentExtractionData | None, pr: DocumentExtractionData | None
     ) -> RuleResult:
         if pr is None:
-            return self._result("R2", RuleStatus.SKIPPED, "Thieu Payment Request.")
+            return self._result("R2", RuleStatus.SKIPPED, "Thiếu Payment Request.")
         pr_bank = pr.bank_beneficiary
         if pr_bank is None or not pr_bank.account_number:
-            return self._result("R2", RuleStatus.INSUFFICIENT_DATA, "PR khong co thong tin tai khoan thu huong.")
+            return self._result("R2", RuleStatus.INSUFFICIENT_DATA, "PR không có thông tin tài khoản thụ hưởng.")
 
         pr_acct = self._acct(pr_bank)
-        # Tai khoan phap nhan ben ban tren Invoice/PO (uu tien Invoice roi PO).
+        # Tài khoản pháp nhân bên bán trên Invoice/PO (ưu tiên Invoice rồi PO).
         ref_bank = None
         ref_src = None
         for label, doc in (("Invoice", inv), ("PO", po)):
@@ -169,7 +169,7 @@ class AuditEngine:
             return self._result(
                 "R2",
                 RuleStatus.INSUFFICIENT_DATA,
-                "Khong tim thay tai khoan phap nhan tren Invoice/PO de so sanh.",
+                "Không tìm thấy tài khoản pháp nhân trên Invoice/PO để so sánh.",
                 details={"pr_account": pr_acct},
             )
 
@@ -178,8 +178,8 @@ class AuditEngine:
             return self._result(
                 "R2",
                 RuleStatus.FAILED,
-                f"Tai khoan thu huong tren PR khong khop tai khoan ben ban tren {ref_src}. "
-                "Dau hieu chuyen tien sang tai khoan khac (nguyen nh gian lan thanh toan).",
+                f"Tài khoản thụ hưởng trên PR không khớp tài khoản bên bán trên {ref_src}. "
+                "Dấu hiệu chuyển tiền sang tài khoản khác (nguy cơ gian lận thanh toán).",
                 details={
                     "expected_value": ref_acct,
                     "actual_value": pr_acct,
@@ -189,7 +189,7 @@ class AuditEngine:
                 },
             )
 
-        # Khop so TK nhung ten chu TK khac nhau -> canh bao them (van la CRITICAL).
+        # Khớp số TK nhưng tên chủ TK khác nhau -> cảnh báo thêm (vẫn là CRITICAL).
         name_mismatch = False
         if pr_bank.account_name and ref_bank.account_name:
             match, _, diff = self._matcher.compare_entities(ref_bank.account_name, pr_bank.account_name)
@@ -198,7 +198,7 @@ class AuditEngine:
             return self._result(
                 "R2",
                 RuleStatus.FAILED,
-                "So tai khoan khop nhung ten chu tai khoan thu huong khong phai phap nhan ben ban.",
+                "Số tài khoản khớp nhưng tên chủ tài khoản thụ hưởng không phải pháp nhân bên bán.",
                 details={
                     "expected_value": ref_bank.account_name,
                     "actual_value": pr_bank.account_name,
@@ -206,14 +206,14 @@ class AuditEngine:
                 },
             )
 
-        return self._result("R2", RuleStatus.PASSED, f"Tai khoan thu huong khop {ref_src}.",
+        return self._result("R2", RuleStatus.PASSED, f"Tài khoản thụ hưởng khớp {ref_src}.",
                            details={"account": pr_acct})
 
     # ----------------------------------------------------------- R3 / R4
 
     def _check_line_items(self, rule_id: str, doc: DocumentExtractionData | None) -> RuleResult:
         if doc is None:
-            return self._result(rule_id, RuleStatus.SKIPPED, f"Thieu {doc.doc_type.value if doc else 'chung tu'}.")
+            return self._result(rule_id, RuleStatus.SKIPPED, f"Thiếu {doc.doc_type.value if doc else 'chứng từ'}.")
         bad: list[dict] = []
         for it in doc.items:
             if it.quantity is None or it.unit_price is None or it.amount is None:
@@ -232,8 +232,8 @@ class AuditEngine:
             parts = ", ".join(
                 f"{b['item_code'] or '?'} (qty*price={b['expected']:.0f} != amount={b['actual']:.0f})" for b in bad
             )
-            return self._result(rule_id, RuleStatus.FAILED, f"Sai soch hoc noi bo dong hang: {parts}", details={"items": bad})
-        return self._result(rule_id, RuleStatus.PASSED, "Dong hang: quantity * unit_price == amount.")
+            return self._result(rule_id, RuleStatus.FAILED, f"Sai số học nội bộ dòng hàng: {parts}", details={"items": bad})
+        return self._result(rule_id, RuleStatus.PASSED, "Dòng hàng: quantity × đơn giá = thành tiền.")
 
     def rule_line_item_math(self, po: DocumentExtractionData | None, inv: DocumentExtractionData | None,
                             pr: DocumentExtractionData | None) -> RuleResult:
@@ -246,10 +246,10 @@ class AuditEngine:
             for p in failed:
                 merged.extend(p.details.get("items", []))
             return self._result("R3", RuleStatus.FAILED,
-                                f"{len(failed)} chung tu co dong hang sai soch hoc.", details={"items": merged})
+                                f"{len(failed)} chứng từ có dòng hàng sai số học.", details={"items": merged})
         skipped = all(p.status == RuleStatus.SKIPPED for p in parts)
         status = RuleStatus.SKIPPED if skipped else RuleStatus.PASSED
-        return self._result("R3", status, "Khong co dong hang sai soch hoc noi bo.")
+        return self._result("R3", status, "Không có dòng hàng sai số học nội bộ.")
 
     def rule_subtotal_vat_total(self, po: DocumentExtractionData | None, inv: DocumentExtractionData | None,
                                 pr: DocumentExtractionData | None) -> RuleResult:
@@ -295,8 +295,8 @@ class AuditEngine:
         if problems:
             return self._result("R4", RuleStatus.FAILED, "; ".join(problems), details={"checks": details})
         if checked == 0:
-            return self._result("R4", RuleStatus.INSUFFICIENT_DATA, "Khong du subtotal/VAT/total de kiem tra.")
-        return self._result("R4", RuleStatus.PASSED, "subtotal + VAT == total va tong dong hang == subtotal.")
+            return self._result("R4", RuleStatus.INSUFFICIENT_DATA, "Không đủ subtotal/VAT/tổng để kiểm tra.")
+        return self._result("R4", RuleStatus.PASSED, "subtotal + VAT = tổng và tổng các dòng = subtotal.")
 
     # ------------------------------------------------------------ R5 / R6
 
@@ -314,10 +314,10 @@ class AuditEngine:
     def rule_item_quantity_match(self, po: DocumentExtractionData | None,
                                  inv: DocumentExtractionData | None) -> RuleResult:
         if po is None or inv is None:
-            return self._result("R5", RuleStatus.SKIPPED, "Can du PO va Invoice.")
+            return self._result("R5", RuleStatus.SKIPPED, "Cần đủ PO và Invoice.")
         po_items, inv_items = self._item_map(po), self._item_map(inv)
         if not po_items or not inv_items:
-            return self._result("R5", RuleStatus.INSUFFICIENT_DATA, "Thieu du lieu dong hang de so sanh so luong.")
+            return self._result("R5", RuleStatus.INSUFFICIENT_DATA, "Thiếu dữ liệu dòng hàng để so sánh số lượng.")
 
         over: list[dict] = []
         missing: list[str] = []
@@ -335,22 +335,22 @@ class AuditEngine:
         details: dict = {"over": over, "missing_on_invoice": missing}
         if over:
             msgs.append(
-                "So luong tren Invoice vuot PO: "
+                "Số lượng trên Invoice vượt PO: "
                 + ", ".join(f"{o['item_code']} (PO={o['po_qty']:.0f}, Inv={o['invoice_qty']:.0f})" for o in over)
             )
         if missing:
-            msgs.append("Hang co tren PO nhung khong co tren Invoice: " + ", ".join(missing))
+            msgs.append("Hàng hoá có trên PO nhưng không có trên Invoice: " + ", ".join(missing))
         if msgs:
             return self._result("R5", RuleStatus.FAILED, "; ".join(msgs), details=details)
-        return self._result("R5", RuleStatus.PASSED, "So luong tren Invoice khong vuot PO.")
+        return self._result("R5", RuleStatus.PASSED, "Số lượng trên Invoice không vượt PO.")
 
     def rule_item_price_match(self, po: DocumentExtractionData | None,
                               inv: DocumentExtractionData | None) -> RuleResult:
         if po is None or inv is None:
-            return self._result("R6", RuleStatus.SKIPPED, "Can du PO va Invoice.")
+            return self._result("R6", RuleStatus.SKIPPED, "Cần đủ PO và Invoice.")
         po_items, inv_items = self._item_map(po), self._item_map(inv)
         if not po_items or not inv_items:
-            return self._result("R6", RuleStatus.INSUFFICIENT_DATA, "Thieu du lieu dong hang de so sanh don gia.")
+            return self._result("R6", RuleStatus.INSUFFICIENT_DATA, "Thiếu dữ liệu dòng hàng để so sánh đơn giá.")
 
         over: list[dict] = []
         for code, po_it in po_items.items():
@@ -363,11 +363,11 @@ class AuditEngine:
                 over.append({"item_code": code, "po_price": po_it.unit_price, "invoice_price": inv_it.unit_price})
 
         if over:
-            msg = "Don gia tren Invoice vuot PO: " + ", ".join(
+            msg = "Don gia tren Invoice vượt PO: " + ", ".join(
                 f"{o['item_code']} (PO={o['po_price']:.0f}, Inv={o['invoice_price']:.0f})" for o in over
             )
             return self._result("R6", RuleStatus.FAILED, msg, details={"over": over})
-        return self._result("R6", RuleStatus.PASSED, "Don gia tren Invoice khong vuot PO.")
+        return self._result("R6", RuleStatus.PASSED, "Đơn giá trên Invoice không vượt PO.")
 
     # --------------------------------------------------------------- R7
 
@@ -382,7 +382,7 @@ class AuditEngine:
             checked += 1
             if inv.total_amount > po.total_amount:
                 problems.append(
-                    f"Tong Invoice ({inv.total_amount:.0f}) vuot tong PO ({po.total_amount:.0f})"
+                    f"Tổng Invoice ({inv.total_amount:.0f}) vượt tổng PO ({po.total_amount:.0f})"
                 )
                 details.append({"check": "invoice_vs_po_total", "expected": po.total_amount, "actual": inv.total_amount})
 
@@ -390,7 +390,7 @@ class AuditEngine:
             checked += 1
             if not _within(pr.requested_payment_amount, inv.total_amount, self.tolerance):
                 problems.append(
-                    f"So tien de nghi tren PR ({pr.requested_payment_amount:.0f}) khong trung Invoice ({inv.total_amount:.0f})"
+                    f"Số tiền đề nghị trên PR ({pr.requested_payment_amount:.0f}) không trùng Invoice ({inv.total_amount:.0f})"
                 )
                 details.append(
                     {"check": "pr_request_vs_invoice_total", "expected": inv.total_amount, "actual": pr.requested_payment_amount}
@@ -399,15 +399,15 @@ class AuditEngine:
         if problems:
             return self._result("R7", RuleStatus.FAILED, "; ".join(problems), details={"checks": details})
         if checked == 0:
-            return self._result("R7", RuleStatus.INSUFFICIENT_DATA, "Khong du tong tien de so sanh.")
-        return self._result("R7", RuleStatus.PASSED, "Tong tien khop giua PO, Invoice va PR.")
+            return self._result("R7", RuleStatus.INSUFFICIENT_DATA, "Không đủ tổng tiền để so sánh.")
+        return self._result("R7", RuleStatus.PASSED, "Tổng tiền khớp giữa PO, Invoice và PR.")
 
     # ---------------------------------------------------------- R8 / R9 / R10
 
     def _compare_names(self, rule_id: str, label: str, values: dict[str, str | None]) -> RuleResult:
         present = {k: v for k, v in values.items() if v}
         if len(present) < 2:
-            return self._result(rule_id, RuleStatus.SKIPPED, f"Thieu {label} tren it nhat 2 chung tu de so sanh.")
+            return self._result(rule_id, RuleStatus.SKIPPED, f"Thiếu {label} trên ít nhất 2 chứng từ để so sánh.")
 
         base_label, base_value = next(iter(present.items()))
         mismatches: list[dict] = []
@@ -430,16 +430,16 @@ class AuditEngine:
                 f" (sim={m['similarity']:.3f}, tokens khac={m['diff_tokens']})"
                 for m in mismatches
             )
-            return self._result(rule_id, RuleStatus.FAILED, f"{label} khong nhat quan: {parts}",
+            return self._result(rule_id, RuleStatus.FAILED, f"{label} không nhất quán: {parts}",
                                 details={"mismatches": mismatches})
-        return self._result(rule_id, RuleStatus.PASSED, f"{label} nhat quan tren cac chung tu.")
+        return self._result(rule_id, RuleStatus.PASSED, f"{label} nhất quán trên các chứng từ.")
 
     def rule_seller_name_similarity(self, po: DocumentExtractionData | None,
                                     inv: DocumentExtractionData | None,
                                     pr: DocumentExtractionData | None) -> RuleResult:
         return self._compare_names(
             "R8",
-            "Ten ben ban",
+            "Tên bên bán",
             {
                 "PO": po.seller_name if po else None,
                 "Invoice": inv.seller_name if inv else None,
@@ -452,7 +452,7 @@ class AuditEngine:
                                    pr: DocumentExtractionData | None) -> RuleResult:
         return self._compare_names(
             "R9",
-            "Ten ben mua",
+            "Tên bên mua",
             {
                 "PO": po.buyer_name if po else None,
                 "Invoice": inv.buyer_name if inv else None,
@@ -488,8 +488,8 @@ class AuditEngine:
         if problems:
             return self._result("R10", RuleStatus.FAILED, "; ".join(problems), details={"mismatches": details})
         if checked == 0:
-            return self._result("R10", RuleStatus.SKIPPED, "Thieu dia chi o ca PO va Invoice.")
-        return self._result("R10", RuleStatus.PASSED, "Dia chi nhat quan giua PO va Invoice.")
+            return self._result("R10", RuleStatus.SKIPPED, "Thiếu địa chỉ ở cả PO và Invoice.")
+        return self._result("R10", RuleStatus.PASSED, "Địa chỉ nhất quán giữa PO và Invoice.")
 
     # -------------------------------------------------------------- R11
 
@@ -503,7 +503,7 @@ class AuditEngine:
         }
         present = {k: v for k, v in dates.items() if v is not None}
         if len(present) < 2:
-            return self._result("R11", RuleStatus.SKIPPED, "Thieu ngay de kiem tra trinh tu thoi gian.")
+            return self._result("R11", RuleStatus.SKIPPED, "Thiếu ngày để kiểm tra trình tự thời gian.")
 
         problems: list[str] = []
         details: list[dict] = []
@@ -514,20 +514,20 @@ class AuditEngine:
             if val is None:
                 continue
             if prev_val is not None and val < prev_val:
-                problems.append(f"Ngay {label} ({val}) truoc Ngay {prev_label} ({prev_val})")
+                problems.append(f"Ngày {label} ({val}) trước Ngày {prev_label} ({prev_val})")
                 details.append({"earlier": prev_label, "earlier_date": str(prev_val), "later": label, "later_date": str(val)})
             prev_label, prev_val = label, val
 
-        # Han thanh toan (neu co) phai sau ngay Invoice.
+        # Hạn thanh toán (nếu có) phải sau ngày Invoice.
         due = (inv.due_date if inv else None) or (pr.due_date if pr else None)
         inv_date = dates["Invoice"]
         if due and inv_date and due < inv_date:
-            problems.append(f"Han thanh toan ({due}) truoc ngay hoa don ({inv_date})")
+            problems.append(f"Hạn thanh toán ({due}) trước ngày hoá đơn ({inv_date})")
             details.append({"due_date": str(due), "invoice_date": str(inv_date)})
 
         if problems:
             return self._result("R11", RuleStatus.FAILED, "; ".join(problems), details={"checks": details})
-        return self._result("R11", RuleStatus.PASSED, "Trinh tu thoi gian PO <= Invoice <= PR hop le.")
+        return self._result("R11", RuleStatus.PASSED, "Trình tự thời gian PO ≤ Invoice ≤ PR hợp lệ.")
 
     # -------------------------------------------------------------- R12
 
@@ -546,14 +546,14 @@ class AuditEngine:
             checked += 1
             norm = status.strip().lower()
             if norm in pending or "pending" in norm or "cho" in norm:
-                problems.append(f"{label} dang o trang thai '{status}' (chua hoan tat phe duyet)")
+                problems.append(f"{label} đang ở trạng thái '{status}' (chưa hoàn tất phê duyệt)")
                 details.append({"doc": label, "status": status})
 
         if problems:
             return self._result("R12", RuleStatus.FAILED, "; ".join(problems), details={"checks": details})
         if checked == 0:
-            return self._result("R12", RuleStatus.SKIPPED, "Khong co trang thai phe duyet de kiem tra.")
-        return self._result("R12", RuleStatus.PASSED, "Trang thai phe duyet hop le.")
+            return self._result("R12", RuleStatus.SKIPPED, "Không có trạng thái phê duyệt để kiểm tra.")
+        return self._result("R12", RuleStatus.PASSED, "Trạng thái phê duyệt hợp lệ.")
 
     # ------------------------------------------------------------- Verdict
 
@@ -575,8 +575,8 @@ class AuditEngine:
             if counts[sev]:
                 parts.append(f"{counts[sev]} {sev.value}")
         summary = (
-            f"Ket qua: {verdict.value}. "
-            + ("Vi pham: " + ", ".join(parts) if parts else "Khong co vi pham.")
+            f"Kết quả: {verdict.value}. "
+            + ("Vi phạm: " + ", ".join(parts) if parts else "Không có vi phạm.")
         )
         return VerdictResult(
             overall_verdict=verdict,
@@ -620,7 +620,7 @@ class AuditEngine:
                         rule_name=RULE_NAMES[rule_id],
                         status=RuleStatus.FAILED,
                         severity=Severity.HIGH,
-                        message=f"Rule loi khong mong doi: {exc}",
+                        message=f"Lỗi quy tắc ngoài ý muốn: {exc}",
                         details={},
                     )
                 )
@@ -630,5 +630,5 @@ class AuditEngine:
 
 
 def audit_documents(docs: dict[DocType, DocumentExtractionData | None]) -> tuple[VerdictResult, list[RuleResult]]:
-    """Tien ich: goi AuditEngine().run(docs)."""
+    """Tiện ích: gọi AuditEngine().run(docs)."""
     return AuditEngine().run(docs)

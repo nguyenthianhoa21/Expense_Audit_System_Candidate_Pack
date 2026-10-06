@@ -2,14 +2,15 @@
 @tailwind components;
 @tailwind utilities;
 
+/* --- Nhấp nháy ngắn khi bấm 1 cảnh báo trong Risk Alerts --- */
 .flash-highlight {
   animation: flash-pulse 1.6s ease-in-out;
 }
 
 @keyframes flash-pulse {
-  0% { background: rgba(239, 68, 68, 0.18); }
-  50% { background: rgba(239, 68, 68, 0.32); }
-  100% { background: transparent; }
+  0%   { background: rgba(239, 68, 68, 0.20); }
+  50%  { background: rgba(239, 68, 68, 0.42); }
+  100% { background: rgba(239, 68, 68, 0.16); }
 }
 
 .flash-warn {
@@ -17,7 +18,35 @@
 }
 
 @keyframes flash-warn {
-  0% { background: rgba(234, 179, 8, 0.2); }
-  50% { background: rgba(234, 179, 8, 0.38); }
-  100% { background: transparent; }
+  0%   { background: rgba(234, 179, 8, 0.22); }
+  50%  { background: rgba(234, 179, 8, 0.46); }
+  100% { background: rgba(234, 179, 8, 0.18); }
 }
+
+/* --- Tô màu ô vi phạm theo mức độ rủi ro (đọc từ findings.highlight_targets của backend) --- */
+.cell-risk-critical {
+  background: rgba(239, 68, 68, 0.12);
+  border-color: rgba(239, 68, 68, 0.55);
+  box-shadow: inset 0 0 0 1px rgba(239, 68, 68, 0.25);
+}
+
+.cell-risk-high {
+  background: rgba(249, 115, 22, 0.12);
+  border-color: rgba(249, 115, 22, 0.5);
+  box-shadow: inset 0 0 0 1px rgba(249, 115, 22, 0.2);
+}
+
+.cell-risk-medium {
+  background: rgba(234, 179, 8, 0.14);
+  border-color: rgba(234, 179, 8, 0.5);
+  box-shadow: inset 0 0 0 1px rgba(234, 179, 8, 0.2);
+}
+
+.cell-risk-info {
+  background: rgba(148, 163, 184, 0.12);
+  border-color: rgba(148, 163, 184, 0.5);
+}
+
+.cell-risk-critical > div:last-child { color: #b91c1c; }
+.cell-risk-high     > div:last-child { color: #c2410c; }
+.cell-risk-medium   > div:last-child { color: #a16207; }

@@ -17,6 +17,21 @@ SessionLocal = async_sessionmaker(engine, expire_on_commit=False)
 async def init_db() -> None:
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        await _ensure_columns(conn)
+
+
+async def _ensure_columns(conn) -> None:
+    """Thêm cột mới cho bảng cũ mà không xoá dữ liệu (SQLite không tự ALTER khi create_all)."""
+    wanted = {
+        "audit_batches": [("reference_label", "VARCHAR(255)")],
+    }
+    for table, cols in wanted.items():
+        for col, ddl in cols:
+            try:
+                await conn.exec_driver_sql(f"ALTER TABLE {table} ADD COLUMN {col} {ddl}")
+            except Exception:
+                # Cột đã tồn tại là trường hợp bình thường.
+                pass
 
 async def get_db():
     async with SessionLocal() as session:
