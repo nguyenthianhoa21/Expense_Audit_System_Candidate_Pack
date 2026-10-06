@@ -1,0 +1,23 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+.flash-highlight {
+  animation: flash-pulse 1.6s ease-in-out;
+}
+
+@keyframes flash-pulse {
+  0% { background: rgba(239, 68, 68, 0.18); }
+  50% { background: rgba(239, 68, 68, 0.32); }
+  100% { background: transparent; }
+}
+
+.flash-warn {
+  animation: flash-warn 1.6s ease-in-out;
+}
+
+@keyframes flash-warn {
+  0% { background: rgba(234, 179, 8, 0.2); }
+  50% { background: rgba(234, 179, 8, 0.38); }
+  100% { background: transparent; }
+}
